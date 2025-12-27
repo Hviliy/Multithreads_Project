@@ -38,4 +38,21 @@ public class ExecutorConfig {
                 new ThreadPoolExecutor.CallerRunsPolicy()
         );
     }
+    @Bean(destroyMethod = "shutdown")
+    public ExecutorService pageExecutor() {
+        int threads = 4;
+        ThreadFactory tf = new ThreadFactory() {
+            private final java.util.concurrent.atomic.AtomicInteger n =
+                    new java.util.concurrent.atomic.AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r);
+                t.setName("page-" + n.getAndIncrement());
+                t.setDaemon(false);
+                return t;
+            }
+        };
+        return Executors.newFixedThreadPool(threads, tf);
+    }
 }

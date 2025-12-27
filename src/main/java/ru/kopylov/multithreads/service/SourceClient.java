@@ -19,11 +19,15 @@ public class SourceClient {
     @Value("${server.port:8080}")
     private int port;
 
-    public List<RawReviewDto> fetchRawReviews(String url, int count) {
-        String endpoint = UriComponentsBuilder
-                .fromUriString("http://localhost:" + port + "/stub/reviews")
+    public List<RawReviewDto> fetchRawReviews(String url, int count, int page) {
+        String endpoint = UriComponentsBuilder.newInstance()
+                .scheme("http")
+                .host("localhost")
+                .port(port)
+                .path("/stub/reviews")
                 .queryParam("url", url)
                 .queryParam("count", count)
+                .queryParam("page", page)
                 .toUriString();
 
         RawReviewDto[] arr = restTemplate.getForObject(endpoint, RawReviewDto[].class);

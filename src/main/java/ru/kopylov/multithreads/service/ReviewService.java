@@ -24,14 +24,16 @@ public class ReviewService {
 
     private final ReviewRepository reviewRepository;
     private final ParseJobRepository parseJobRepository;
-    private final SourceClient sourceClient;
     private final ExecutorService parserExecutor;
     private final ParseJobRunner parseJobRunner;
+    private final AsyncEventLogger asyncEventLogger;
     private final ConcurrentHashMap<UUID, Boolean> runningGuards = new ConcurrentHashMap<>();
 
 
     public UUID startParseAsync(String url) {
         UUID jobId = UUID.randomUUID();
+
+        asyncEventLogger.logEvent("Создана задача парсинга: id=" + jobId + " url=" + url);
 
         ParseJob job = ParseJob.builder()
                 .id(jobId)
@@ -41,63 +43,23 @@ public class ReviewService {
                 .build();
 
         parseJobRepository.save(job);
+        asyncEventLogger.logEvent("Задача сохранена в БД: id=" + jobId + " status=QUEUED");
 
         parserExecutor.submit(() -> {
-            if (runningGuards.putIfAbsent(jobId, true) != null) return;
+            if (runningGuards.putIfAbsent(jobId, true) != null) {
+                asyncEventLogger.logEvent("Повторный запуск задачи предотвращён id=" + jobId);
+                return;
+            }
             try {
+                asyncEventLogger.logEvent("Задача отправлена в пул потоков: id=" + jobId);
                 parseJobRunner.run(jobId, url);
             } finally {
                 runningGuards.remove(jobId);
+                asyncEventLogger.logEvent("защита от дубля: id=" + jobId);
             }
         });
 
         return jobId;
-    }
-
-
-    @Transactional
-    public void runJob(UUID jobId, String url) {
-        if (runningGuards.putIfAbsent(jobId, true) != null) {
-            return;
-        }
-
-        try {
-            ParseJob job = parseJobRepository.findById(jobId).orElseThrow();
-            job.setStatus(ParseStatus.RUNNING);
-            job.setStartedAt(Instant.now());
-            parseJobRepository.save(job);
-
-            var raw = sourceClient.fetchRawReviews(url, DEFAULT_COUNT);
-
-            var now = Instant.now();
-            var batch = raw.stream().map(r -> Review.builder()
-                    .sourceUrl(url)
-                    .authorName(r.getAuthorName())
-                    .rating(r.getRating())
-                    .text(r.getText())
-                    .createdAt(r.getCreatedAt())
-                    .fetchedAt(now)
-                    .build()
-            ).toList();
-
-            reviewRepository.saveAll(batch);
-
-            job.setStatus(ParseStatus.SUCCESS);
-            job.setFinishedAt(Instant.now());
-            job.setCreatedReviews(batch.size());
-            parseJobRepository.save(job);
-
-        } catch (Exception e) {
-            ParseJob job = parseJobRepository.findById(jobId).orElse(null);
-            if (job != null) {
-                job.setStatus(ParseStatus.FAILED);
-                job.setFinishedAt(Instant.now());
-                job.setErrorMessage(e.toString());
-                parseJobRepository.save(job);
-            }
-        } finally {
-            runningGuards.remove(jobId);
-        }
     }
 
     @Transactional(readOnly = true)
