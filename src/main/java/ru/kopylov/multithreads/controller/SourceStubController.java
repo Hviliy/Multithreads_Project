@@ -23,8 +23,8 @@ public class SourceStubController {
         return java.util.stream.IntStream.range(0, count)
                 .mapToObj(i -> {
                     int rating = rnd.nextInt(1, 6);
-                    String author = "стаб юзер" + pageNo + "_" + rnd.nextInt(1000, 9999);
-                    String text = "стаб страница отзыва=" + pageNo + " для " + url + " #" + rnd.nextInt(10000);
+                    String author = "юзер" + pageNo + "_" + rnd.nextInt(1000, 9999);
+                    String text = "страница отзыва=" + pageNo + " из " + url + " #" + rnd.nextInt(10000);
                     LocalDate createdAt = LocalDate.now().minusDays(rnd.nextInt(0, 365));
                     return new RawReviewDto(author, rating, text, createdAt);
                 })

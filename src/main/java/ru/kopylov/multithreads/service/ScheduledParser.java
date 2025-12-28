@@ -3,7 +3,6 @@ package ru.kopylov.multithreads.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import ru.kopylov.multithreads.repository.SourceUrlRepository;
 
 import java.time.Instant;
@@ -16,8 +15,7 @@ public class ScheduledParser {
     private final ReviewService reviewService;
     private final AsyncEventLogger asyncEventLogger;
 
-    @Scheduled(fixedDelay = 30_000)
-    @Transactional
+    @Scheduled(fixedRate = 30_000)
     public void runScheduled() {
         var sources = sourceUrlRepository.findAllByEnabledTrue();
         asyncEventLogger.logEvent("Планировщик: запуск цикла, активных источников=" + sources.size());

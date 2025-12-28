@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Парсер отзывов</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 20px; }
+        .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+        .card { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin: 12px 0; }
+        label { font-size: 12px; color: #555; display: block; margin-bottom: 6px; }
+        input, select, button { padding: 10px; border-radius: 8px; border: 1px solid #ccc; }
+        input[type="text"] { min-width: 420px; }
+        button { cursor: pointer; }
+        .muted { color: #666; font-size: 12px; }
+        .ok { color: #0a7; font-weight: 600; }
+        .bad { color: #c22; font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+        th { background: #fafafa; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
+        .small { width: 120px; }
+    </style>
+</head>
+<body>
+
+<h2>Парсер отзывов</h2>
+<div class="muted">
+    • Запуск: <code>POST /parse</code> -> jobId -> проверка <code>GET /jobs/{id}</code><br/>
+    • Просмотр: <code>GET /answer</code> (JPA page) или <code>GET /answer/parallel</code> (parallelStream)
+</div>
+
+<div class="card">
+    <h3>Запуск парсинга</h3>
+    <div class="row">
+        <div>
+            <label>URL (Steam или любая строка для стаб отзывов)</label>
+            <input id="url" type="text" value="https://store.steampowered.com/app/730/" />
+            <div class="muted">Steam: вставь URL вида <code>https://store.steampowered.com/app/108600/...</code> или <code>steam:108600</code></div>
+        </div>
+        <div>
+            <button id="btnStart">Запустить</button>
+        </div>
+        <div>
+            <label>JobId</label>
+            <input id="jobId" class="small" type="text" placeholder="..." />
+            <div class="muted">можно вставить вручную</div>
+        </div>
+        <div>
+            <button id="btnCheck">Проверить статус</button>
+            <button id="btnPoll">Авто-опрос</button>
+            <button id="btnStopPoll">Стоп</button>
+        </div>
+    </div>
+
+    <div style="margin-top:10px;">
+        <div>Статус: <span id="jobStatus" class="muted">—</span></div>
+        <div class="muted" id="jobMeta"></div>
+        <div class="muted" id="jobErr"></div>
+        <div class="muted" id="jobHint"></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card">
+        <h3>Источники для планировщика</h3>
+        <div class="muted">
+            Добавь ссылку в список источников - планировщик будет запускать парсинг автоматически.
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+            <div>
+                <label>URL источника</label>
+                <input id="sourceUrl" type="text" value="https://store.steampowered.com/app/730/" />
+                <div class="muted">Steam URL или любая строка для стабов</div>
+            </div>
+            <div>
+                <button id="btnAddSource">Добавить источник</button>
+                <button id="btnReloadSources">Обновить список</button>
+            </div>
+        </div>
+
+        <div class="muted" id="sourcesMeta" style="margin-top:10px;"></div>
+
+        <div style="overflow:auto; margin-top:10px;">
+            <table>
+                <thead>
+                <tr>
+                    <th>id</th>
+                    <th>url</th>
+                    <th>enabled</th>
+                    <th>lastTriggeredAt</th>
+                    <th>действия</th>
+                </tr>
+                </thead>
+                <tbody id="sourcesTbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <h3>Просмотр результатов</h3>
+
+    <div class="row">
+        <div>
+            <label>Режим выдачи</label>
+            <select id="mode">
+                <option value="answer">Обычный(постранично из БД) </option>
+                <option value="parallel">Параллельный</option>
+            </select>
+        </div>
+
+        <div>
+            <label>Страница</label>
+            <input id="page" class="small" type="number" min="0" value="0" />
+        </div>
+        <div>
+            <label>Размер страницы</label>
+            <input id="size" class="small" type="number" min="1" value="20" />
+        </div>
+
+        <div>
+            <label>Сортировать по</label>
+            <select id="sortBy">
+                <option value="fetchedAt">Дата получения</option>
+                <option value="rating">Рейтинг</option>
+                <option value="createdAt">Дата отзыва</option>
+            </select>
+        </div>
+
+        <div>
+            <label>Направление</label>
+            <select id="direction">
+                <option value="desc">По убыванию</option>
+                <option value="asc">По возрастанию</option>
+            </select>
+        </div>
+
+        <div>
+            <label>Мин. рейтинг (только для параллельного)</label>
+            <input id="minRating" class="small" type="number" min="1" max="5" placeholder="например 4" />
+        </div>
+
+        <div>
+            <button id="btnLoad">Загрузить</button>
+        </div>
+    </div>
+
+    <div style="margin-top:10px;" class="muted" id="resultMeta"></div>
+
+    <div style="overflow:auto; margin-top:10px;">
+        <table>
+            <thead>
+            <tr>
+                <th>id</th>
+                <th>Источник</th>
+                <th>Автор</th>
+                <th>Рейтинг</th>
+                <th>Дата отзыва</th>
+                <th>Дата получения</th>
+                <th>Текст</th>
+            </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+
+    let pollTimer = null;
+
+    function setStatus(text, kind) {
+        const el = $("jobStatus");
+        el.textContent = text ?? "—";
+        el.className = kind === "ok" ? "ok" : (kind === "bad" ? "bad" : "muted");
+    }
+
+    function setHint(text, kind) {
+        const el = $("jobHint");
+        el.textContent = text || "";
+        el.className = kind === "bad" ? "bad" : "muted";
+    }
+
+    async function startParse() {
+        $("jobErr").textContent = "";
+        $("jobMeta").textContent = "";
+        setStatus("запуск...", "");
+        setHint("");
+
+        const url = $("url").value.trim();
+        if (!url) {
+            setHint("Введите URL (Steam или любая строка для stub).", "bad");
+            return;
+        }
+
+        const resp = await fetch("/parse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url })
+        });
+
+        if (!resp.ok) {
+            const t = await resp.text();
+            setStatus("ошибка", "bad");
+            $("jobErr").textContent = t;
+            return;
+        }
+
+        const data = await resp.json();
+        $("jobId").value = data.jobId || "";
+        setStatus("создана задача", "ok");
+        await checkJob();
+    }
+
+    async function checkJob() {
+        $("jobErr").textContent = "";
+        $("jobMeta").textContent = "";
+        setHint("");
+
+        const jobId = $("jobId").value.trim();
+        if (!jobId) {
+            setHint("Сначала запустите парсинг или вставьте jobId вручную.", "bad");
+            return;
+        }
+
+        const resp = await fetch(`/jobs/${encodeURIComponent(jobId)}`);
+        if (!resp.ok) {
+            const t = await resp.text();
+            setStatus("ошибка", "bad");
+            $("jobErr").textContent = t;
+            return;
+        }
+
+        const job = await resp.json();
+        const st = job.status || "UNKNOWN";
+
+        if (st === "SUCCESS") setStatus(st, "ok");
+        else if (st === "FAILED") setStatus(st, "bad");
+        else setStatus(st, "");
+
+        $("jobMeta").textContent =
+            `createdAt=${job.createdAt || "-"} startedAt=${job.startedAt || "-"} finishedAt=${job.finishedAt || "-"}
+            createdReviews=${job.createdReviews ?? "-"}`;
+        $("jobErr").textContent = job.errorMessage ? ("errorMessage=" + job.errorMessage) : "";
+    }
+
+    function startPolling() {
+        const jobId = $("jobId").value.trim();
+        if (!jobId) {
+            setHint("Нельзя включить авто-опрос без jobId. Нажмите 'Запустить' или вставьте jobId.", "bad");
+            return;
+        }
+        if (pollTimer) return;
+
+        setHint("Авто-опрос включён (раз в 1 сек).", "");
+        pollTimer = setInterval(async () => {
+            await checkJob();
+            const st = $("jobStatus").textContent;
+            if (st === "УСПЕХ" || st === "ОШИБКА") {
+                setHint("Авто-опрос остановлен: задача завершена.", "");
+                stopPolling();
+            }
+        }, 1000);
+    }
+
+    function stopPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+    }
+
+    function renderRows(items) {
+        const tb = $("tbody");
+        tb.innerHTML = "";
+
+        for (const r of items) {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+        <td>${r.id ?? ""}</td>
+        <td>${escapeHtml(r.sourceUrl ?? "")}</td>
+        <td>${escapeHtml(r.authorName ?? "")}</td>
+        <td>${r.rating ?? ""}</td>
+        <td>${r.createdAt ?? ""}</td>
+        <td>${formatInstant(r.fetchedAt)}</td>
+        <td>${escapeHtml(r.text ?? "")}</td>
+      `;
+            tb.appendChild(tr);
+        }
+    }
+    function formatInstant(s) {
+        if (!s) return "";
+        const d = new Date(s);
+        if (Number.isNaN(d.getTime())) return s;
+        return d.toLocaleString("ru-RU", {
+            year: "numeric", month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit", second: "2-digit"
+        });
+    }
+
+    function escapeHtml(s) {
+        return String(s)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    async function loadResults() {
+        const mode = $("mode").value;
+        const page = $("page").value || "0";
+        const size = $("size").value || "20";
+        const sortBy = $("sortBy").value;
+        const direction = $("direction").value;
+        const minRating = $("minRating").value;
+
+        let url = "";
+        if (mode === "answer") {
+            url = `/answer?page=${encodeURIComponent(page)}&size=${encodeURIComponent(size)}
+            &sort=${encodeURIComponent(sortBy + "," + direction)}`;
+        } else {
+            const mr = minRating ? `&minRating=${encodeURIComponent(minRating)}` : "";
+            url = `/answer/parallel?page=${encodeURIComponent(page)}&size=${encodeURIComponent(size)}${mr}
+            &sortBy=${encodeURIComponent(sortBy)}&direction=${encodeURIComponent(direction)}`;
+        }
+
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            const t = await resp.text();
+            $("resultMeta").textContent = "Ошибка: " + t;
+            renderRows([]);
+            return;
+        }
+
+        const data = await resp.json();
+
+        const content = data.content || [];
+        const total = data.totalElements ?? content.length;
+        const totalPages = data.totalPages ?? "";
+        $("resultMeta").textContent = `Получено=${content.length}, totalElements=${total}, totalPages=${totalPages}, endpoint=${url}`;
+
+        renderRows(content);
+    }
+    async function reloadSources() {
+        const tb = $("sourcesTbody");
+        tb.innerHTML = "";
+        $("sourcesMeta").textContent = "Загрузка источников...";
+
+        const resp = await fetch("/sources");
+        if (!resp.ok) {
+            $("sourcesMeta").textContent = "Ошибка загрузки /sources: " + await resp.text();
+            return;
+        }
+
+        const items = await resp.json();
+        $("sourcesMeta").textContent = "Всего источников: " + (items?.length ?? 0);
+
+        for (const s of (items || [])) {
+            const tr = document.createElement("tr");
+
+            const enabledText = s.enabled ? "да" : "нет";
+            const last = s.lastTriggeredAt ? formatInstant(s.lastTriggeredAt) : "";
+
+            tr.innerHTML = `
+      <td>${s.id ?? ""}</td>
+      <td>${escapeHtml(s.url ?? "")}</td>
+      <td>${enabledText}</td>
+      <td>${last}</td>
+      <td>
+        <button data-action="enable" data-id="${s.id}">Включить</button>
+        <button data-action="disable" data-id="${s.id}">Выключить</button>
+      </td>
+    `;
+
+            tb.appendChild(tr);
+        }
+    }
+
+    async function addSource() {
+        const url = $("sourceUrl").value.trim();
+        if (!url) {
+            $("sourcesMeta").textContent = "Введите URL источника.";
+            return;
+        }
+
+        $("sourcesMeta").textContent = "Добавляем источник...";
+
+        const resp = await fetch("/sources", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url })
+        });
+
+        if (!resp.ok) {
+            $("sourcesMeta").textContent = "Ошибка добавления: " + await resp.text();
+            return;
+        }
+
+        $("sourcesMeta").textContent = "Источник добавлен.";
+        await reloadSources();
+    }
+
+    async function toggleSource(id, enable) {
+        const url = enable ? `/sources/${id}/enable` : `/sources/${id}/disable`;
+
+        $("sourcesMeta").textContent = (enable ? "Включаем" : "Выключаем") + " источник id=" + id + "...";
+
+        const resp = await fetch(url, { method: "POST" });
+        if (!resp.ok) {
+            $("sourcesMeta").textContent = "Ошибка: " + await resp.text();
+            return;
+        }
+
+        $("sourcesMeta").textContent = "Готово.";
+        await reloadSources();
+    }
+
+    $("btnStart").addEventListener("click", startParse);
+    $("btnCheck").addEventListener("click", checkJob);
+    $("btnPoll").addEventListener("click", startPolling);
+    $("btnStopPoll").addEventListener("click", stopPolling);
+    $("btnLoad").addEventListener("click", loadResults);
+    $("btnAddSource").addEventListener("click", addSource);
+    $("btnReloadSources").addEventListener("click", reloadSources);
+
+    $("sourcesTbody").addEventListener("click", async (e) => {
+        const btn = e.target.closest("button");
+        if (!btn) return;
+
+        const id = btn.getAttribute("data-id");
+        const action = btn.getAttribute("data-action");
+        if (!id || !action) return;
+
+        if (action === "enable") await toggleSource(id, true);
+        if (action === "disable") await toggleSource(id, false);
+    });
+
+    reloadSources().catch(() => {});
+</script>
+
+</body>
+</html>

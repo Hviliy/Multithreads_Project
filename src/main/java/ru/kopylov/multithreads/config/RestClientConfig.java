@@ -11,8 +11,9 @@ public class RestClientConfig {
 
     @Bean
     public RestTemplate restTemplate(RestTemplateBuilder b) {
-        return b.additionalInterceptors((req, body, ex) -> {
-            req.getHeaders().add(HttpHeaders.USER_AGENT, "Mozilla/5.0 (compatible; MultithreadsParser/1.0)");
+        return b.additionalInterceptors((req, body, ex) ->
+                {req.getHeaders().add(HttpHeaders.USER_AGENT,
+                        "Mozilla/5.0 (compatible; MultithreadsParser/1.0)");
             return ex.execute(req, body);
         }).build();
     }

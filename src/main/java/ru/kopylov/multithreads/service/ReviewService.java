@@ -20,14 +20,13 @@ import java.util.concurrent.ExecutorService;
 @RequiredArgsConstructor
 public class ReviewService {
 
-    private static final int DEFAULT_COUNT = 5;
-
     private final ReviewRepository reviewRepository;
     private final ParseJobRepository parseJobRepository;
     private final ExecutorService parserExecutor;
     private final ParseJobRunner parseJobRunner;
     private final AsyncEventLogger asyncEventLogger;
-    private final ConcurrentHashMap<UUID, Boolean> runningGuards = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Boolean> runningGuards = new ConcurrentHashMap<>();
+    private final SteamReviewsClient steamReviewsClient;
 
 
     public UUID startParseAsync(String url) {
@@ -42,20 +41,49 @@ public class ReviewService {
                 .createdAt(Instant.now())
                 .build();
 
-        parseJobRepository.save(job);
+        parseJobRepository.saveAndFlush(job);
         asyncEventLogger.logEvent("Задача сохранена в БД: id=" + jobId + " status=QUEUED");
 
-        parserExecutor.submit(() -> {
-            if (runningGuards.putIfAbsent(jobId, true) != null) {
-                asyncEventLogger.logEvent("Повторный запуск задачи предотвращён id=" + jobId);
+        String guardKey = url == null ? "" : url.trim();
+
+        if (steamReviewsClient.supports(guardKey)) guardKey = "steam:" + steamReviewsClient.extractAppId(guardKey);
+        String finalGuardKey = guardKey;
+        parserExecutor.execute(() -> {
+            if (runningGuards.putIfAbsent(finalGuardKey, true) != null) {
+                asyncEventLogger.logEvent("Повторный запуск источника предотвращён: url="
+                        + finalGuardKey + ", jobId=" + jobId);
+
+                ParseJob j = parseJobRepository.findById(jobId).orElseThrow();
+                j.setStatus(ParseStatus.SUCCESS);
+                j.setFinishedAt(Instant.now());
+                j.setCreatedReviews(0);
+                j.setErrorMessage("Источник уже в обработке (guard)");
+                parseJobRepository.save(j);
                 return;
             }
+
             try {
                 asyncEventLogger.logEvent("Задача отправлена в пул потоков: id=" + jobId);
-                parseJobRunner.run(jobId, url);
+
+
+                try {
+                    parseJobRunner.run(jobId, url);
+                } catch (Throwable t) {
+                    asyncEventLogger.logEvent("ошибка вне обработчика run(): jobId=" + jobId + " причина=" + t);
+
+                    ParseJob j = parseJobRepository.findById(jobId).orElse(null);
+                    if (j != null) {
+                        j.setStatus(ParseStatus.FAILED);
+                        j.setFinishedAt(Instant.now());
+                        j.setErrorMessage("Ошибка: " + t);
+                        parseJobRepository.save(j);
+                    } else {
+                        asyncEventLogger.logEvent("Не нашёл задачу в БД для обновления статуса: id=" + jobId);
+                    }
+                }
             } finally {
-                runningGuards.remove(jobId);
-                asyncEventLogger.logEvent("защита от дубля: id=" + jobId);
+                runningGuards.remove(finalGuardKey);
+                asyncEventLogger.logEvent("guard освобождён: url=" + finalGuardKey + ", jobId=" + jobId);
             }
         });
 

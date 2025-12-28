@@ -20,7 +20,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
-@SpringBootTest(properties = "spring.main.allow-bean-definition-overriding=true")
+@SpringBootTest(properties = {
+        "spring.main.allow-bean-definition-overriding=true",
+        "parser.pages=3",
+        "parser.per-page=5",
+})
 class ReviewServiceFlowTest {
 
     @TestConfiguration

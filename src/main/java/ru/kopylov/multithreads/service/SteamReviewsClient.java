@@ -64,8 +64,8 @@ public class SteamReviewsClient {
 
         String uri = "https://store.steampowered.com/appreviews/" + appId
                 + "?json=1"
-                + "&filter=recent"
-                + "&language=all"
+                + "&filter=funny"
+                + "&language=russian"
                 + "&review_type=all"
                 + "&purchase_type=all"
                 + "&num_per_page=" + Math.min(Math.max(numPerPage, 1), 100)
